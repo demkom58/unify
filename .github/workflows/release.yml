@@ -1,0 +1,120 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Add permissions at the workflow level
+permissions:
+  contents: write  # This is required for creating releases
+  packages: write  # This is required if you are pushing to GitHub Packages
+
+jobs:
+  build-and-release:
+    name: Build and Release
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: unify
+            asset_name: unify-linux-amd64
+            use_cross: false
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact_name: unify
+            asset_name: unify-linux-arm64
+            use_cross: true
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: unify.exe
+            asset_name: unify-windows-amd64.exe
+            use_cross: false
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: unify
+            asset_name: unify-macos-amd64
+            use_cross: false
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: unify
+            asset_name: unify-macos-arm64
+            use_cross: false
+
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
+
+      - name: Install cross (for cross-compilation)
+        if: matrix.use_cross
+        run: |
+          cargo install cross
+
+      - name: Build binary (standard)
+        if: ${{ !matrix.use_cross }}
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --target ${{ matrix.target }}
+
+      - name: Build binary (using cross)
+        if: matrix.use_cross
+        run: |
+          cross build --release --target ${{ matrix.target }}
+
+      - name: Prepare binary
+        shell: bash
+        run: |
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} ${{ matrix.asset_name }}
+          else
+            cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} ${{ matrix.asset_name }}
+            chmod +x ${{ matrix.asset_name }}
+          fi
+
+      - name: Get version
+        id: get_version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Unify ${{ env.VERSION }}
+          draft: false
+          prerelease: false
+          files: |
+            ${{ matrix.asset_name }}
+          body: |
+            # Unify ${{ env.VERSION }}
+            
+            ## Installation
+            
+            ### Linux (x86_64)
+            ```
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ env.VERSION }}/unify-linux-amd64 -o unify
+            chmod +x unify
+            sudo mv unify /usr/local/bin/
+            ```
+            
+            ### macOS (x86_64)
+            ```
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ env.VERSION }}/unify-macos-amd64 -o unify
+            chmod +x unify
+            sudo mv unify /usr/local/bin/
+            ```
+            
+            ### Windows (x86_64)
+            Download the .exe file and add it to your PATH.
+            
