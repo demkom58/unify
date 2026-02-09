@@ -1,0 +1,10 @@
+ignores = [
+    "/bin/",
+    "/pkg/",
+    "*.test",
+    "/vendor/",
+    "/Godeps/",
+    "/.go-version",
+    "go.work",
+    "go.sum",
+]

@@ -1,0 +1,8 @@
+ignores = [
+    "/target/",
+    "Cargo.lock",
+    "**/*.rs.bk",
+    "**/*.pdb",
+    "/benches/target/",
+    "rust-toolchain.toml",
+]

@@ -1,0 +1,14 @@
+ignores = [
+    "/.build/",
+    "/Packages/",
+    "/*.xcodeproj/",
+    "/*.xcworkspace/",
+    "/xcuserdata/",
+    "/DerivedData/",
+    "/.swiftpm/",
+    "/*.hmap",
+    "/*.ipa",
+    "/*.dSYM.zip",
+    "/*.dSYM",
+    "Package.resolved",
+]

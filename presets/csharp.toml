@@ -1,0 +1,14 @@
+ignores = [
+    "/bin/",
+    "/obj/",
+    "*.user",
+    "/_ReSharper*/",
+    "/packages/",
+    "/.vs/",
+    "*.suo",
+    "/TestResults/",
+    "*.pidb",
+    "/project.lock.json",
+    "/project.assets.json",
+    "*.DotSettings.user",
+]

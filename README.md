@@ -1,169 +1,155 @@
-# Unify - Text File Unification Tool
+# Unify
 
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/demkom58/unify)
-![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/demkom58/unify/release.yml)
-![License](https://img.shields.io/github/license/demkom58/unify)
+A file unification tool that joins text files according to gitignore-style patterns. Useful for code reviews, documentation, LLM context windows, and sharing code.
 
-Unify is a powerful CLI tool that joins text files from your project into a single, unified document. It uses gitignore-style pattern matching to determine which files to include or exclude, making it perfect for code reviews, documentation, and sharing code snippets.
-
-## Features
-
-- **Gitignore-style patterns**: Familiar syntax for including/excluding files
-- **Multiple language support**: Built-in configurations for popular programming languages
-- **Custom headers**: Format file headers with customizable templates
-- **Binary file detection**: Automatically skips binary files
-- **Recursive traversal**: Process entire directory trees
-- **Path filtering**: Process only specific directories within a project
-- **Flexible output**: Write to file or stdout
-
-## Installation
-
-### From Source
+## Install
 
 ```bash
-# Clone the repository
-git clone https://github.com/demkom58/unify.git
-cd unify
-
-# Build and install
-cargo build --release
 cargo install --path .
 ```
 
-### From Cargo
-
+With LLM token counting:
 ```bash
-cargo install unify
+cargo install --path . --features tokens
 ```
-
-### Pre-built Binaries
-
-Download the latest binary for your platform from the [Releases page](https://github.com/demkom58/unify/releases).
 
 ## Quick Start
 
 ```bash
-# Create a default configuration file
+# Initialize a config file (auto-detects languages)
 unify init
 
-# Create a configuration for specific languages
-unify init --language rust,js,python
+# Preview what would be included
+unify --dry-run
 
-# Join files according to the configuration
+# Unify all files
 unify
 
-# Join only files in specific directories
+# Unify specific directories
 unify ./src ./lib
 
-# Specify output file
-unify -o combined.txt
+# Output as markdown with code blocks
+unify --format markdown -o unified.md
+
+# Use with a specific language preset
+unify --language rust,js
 ```
 
 ## Configuration
 
-Unify uses a `.unify.toml` file in your project directory for configuration:
+Unify uses a layered config system. Each layer overrides the previous:
+
+1. **Built-in defaults** (hardcoded)
+2. **Global config** (`~/.config/unify/config.toml`)
+3. **Project config** (`.unify.toml`, searched upward from working dir)
+4. **Language presets** (embedded + customizable)
+5. **CLI arguments** (highest priority)
+
+### Example `.unify.toml`
 
 ```toml
+language = ["rust"]
+
 ignores = [
-    # Root-level only patterns
-    "/node_modules/",
-    "/build/",
-    "/dist/",
-    
-    # Patterns that apply everywhere
     ".git/",
-    "*.log",
-    
-    # Exceptions
-    "!important.log"
+    ".vscode/",
+    ".idea/",
+    "/.unify.toml",
 ]
+
+# Only include specific paths (whitelist)
+# includes = ["src/**", "Cargo.toml"]
+
+# Append ignores without replacing
+# extra_ignores = ["my-custom-dir/"]
+
 recursive = true
-header_template = "\n---\nFile: {relative_path}\n---\n"
-output = "project.joined.txt"
+follow_symlinks = false
+skip_binary = true
+max_file_size = "1MB"
+
+format = "markdown"       # plain, markdown, xml, json
+output = "unified.md"
+wrap_code_block = true     # wrap files in fenced code blocks
+code_block_lang = "auto"  # auto (uses file extension), none, or a specific lang
+toc = true                # generate table of contents
+
+header_template = "\n## {relative_path}\n\n"
+footer_template = "\n"
 ```
 
-### Configuration Options
+### Template Variables
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `ignores` | Array of gitignore-style patterns | `[]` |
-| `recursive` | Whether to process subdirectories | `true` |
-| `header_template` | Template for file headers | `"// File: {relative_path}\n"` |
-| `output` | Output file name (use "-" for stdout) | `"unified.txt"` |
+| Variable | Example | Description |
+|----------|---------|-------------|
+| `{relative_path}` | `src/main.rs` | Full path relative to project root |
+| `{file_name}` | `main.rs` | File name only |
+| `{extension}` | `rs` | File extension |
+| `{lines}` | `142` | Line count |
+| `{size}` | `4.2 KB` | Human-readable size |
+| `{dir}` | `src` | Directory portion |
 
-### Header Template Variables
+### Output Formats
 
-- `{relative_path}` - Path relative to the working directory
-- `{file_name}` - Name of the file without the path
+| Format | Description | Default output |
+|--------|-------------|---------------|
+| `plain` | Simple text with comment headers | `unified.txt` |
+| `markdown` | Headings + fenced code blocks | `unified.md` |
+| `xml` | Structured XML with CDATA | `unified.xml` |
+| `json` | Array of file objects | `unified.json` |
 
-## Usage
+## Language Presets
 
-```
-USAGE:
-    unify [OPTIONS] [PATHS]...
-    unify <SUBCOMMAND>
-
-ARGS:
-    <PATHS>...    Specific directories to process (if not specified, process the whole working directory)
-
-OPTIONS:
-    -c, --config <CONFIG>    Path to the configuration file [default: .unify.toml]
-    -d, --dir <DIR>          Directory to process (defaults to current directory)
-    -h, --help               Print help information
-    -o, --output <OUTPUT>    Path where the unified output will be written
-    -V, --version            Print version information
-
-SUBCOMMANDS:
-    help    Show help about pattern syntax
-    init    Initialize a new .unify.toml config file
-```
-
-### Examples
+Presets provide language-specific ignore patterns. They're loaded from embedded defaults or your custom overrides.
 
 ```bash
-# Process all files in current directory using .unify.toml
-unify
+# List available presets
+unify preset list
 
-# Process only specific directories
-unify ./src ./include
+# Show a preset's contents
+unify preset show rust
 
-# Use a custom configuration file
-unify -c custom-config.toml
+# Export for customization
+unify preset export rust
+# Edit ~/.config/unify/languages/rust.toml
 
-# Specify working directory and output file
-unify -d /path/to/project -o unified.txt
-
-# Show pattern syntax help
-unify help
+# Reset to built-in
+unify preset reset rust
 ```
+
+Available: `rust`, `python`, `javascript`, `go`, `java`, `c`, `csharp`, `php`, `ruby`, `swift`, `elixir`
+
+Aliases: `rs`→rust, `py`→python, `js`/`ts`→javascript, `cpp`→c, `cs`→csharp, `rb`→ruby, `ex`→elixir
+
+Languages are auto-detected from project files (Cargo.toml, package.json, etc.) when not specified.
+
+## Global Config
+
+Set defaults that apply to all projects:
+
+```bash
+unify init --global
+# Edit ~/.config/unify/config.toml
+```
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `UNIFY_OUTPUT` | Default output file path |
 
 ## Pattern Syntax
 
-Unify uses gitignore-style patterns:
+Patterns follow gitignore rules:
 
-- Lines starting with `#` are comments
-- Patterns ending with `/` match directories only
-- Patterns starting with `/` match from the root directory
-- Patterns starting with `!` negate a previous pattern (include)
-- `*` matches any sequence of characters except `/`
-- `**` matches any sequence of directories
+- `*.log` — ignore all .log files anywhere
+- `/target/` — ignore target directory at project root only
+- `build/` — ignore all directories named 'build'
+- `!important.log` — re-include despite other patterns
+- `**/*.min.js` — match across directory boundaries
 
-Examples:
-- `*.log` - Ignore all .log files anywhere
-- `/node_modules/` - Ignore node_modules at the root only
-- `build/` - Ignore all build directories anywhere
-- `!important.log` - Include important.log even if ignored by other patterns
+Run `unify help` for full pattern syntax documentation.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+MIT

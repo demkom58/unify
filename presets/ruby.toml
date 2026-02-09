@@ -1,0 +1,15 @@
+ignores = [
+    "/.bundle/",
+    "/vendor/bundle/",
+    "*.gem",
+    "/.ruby-version",
+    "/.ruby-gemset",
+    "/.rvmrc",
+    "/log/",
+    "/tmp/",
+    "/db/*.sqlite3",
+    "/db/*.sqlite3-journal",
+    "/coverage/",
+    "/spec/reports/",
+    "Gemfile.lock",
+]

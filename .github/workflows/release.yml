@@ -5,116 +5,202 @@ on:
     tags:
       - 'v*'
 
-# Add permissions at the workflow level
 permissions:
-  contents: write  # This is required for creating releases
-  packages: write  # This is required if you are pushing to GitHub Packages
+  contents: write
 
 jobs:
-  build-and-release:
-    name: Build and Release
+  build:
+    name: Build ${{ matrix.asset_name }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact_name: unify
             asset_name: unify-linux-amd64
-            use_cross: false
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             artifact_name: unify
             asset_name: unify-linux-arm64
             use_cross: true
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            artifact_name: unify
+            asset_name: unify-linux-amd64-musl
+            use_cross: true
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact_name: unify.exe
             asset_name: unify-windows-amd64.exe
-            use_cross: false
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            artifact_name: unify.exe
+            asset_name: unify-windows-arm64.exe
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact_name: unify
             asset_name: unify-macos-amd64
-            use_cross: false
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact_name: unify
             asset_name: unify-macos-arm64
-            use_cross: false
 
     runs-on: ${{ matrix.os }}
-    
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
-          target: ${{ matrix.target }}
-          override: true
+          targets: ${{ matrix.target }}
 
-      - name: Install cross (for cross-compilation)
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ matrix.target }}-cargo-
+
+      - name: Install cross
         if: matrix.use_cross
-        run: |
-          cargo install cross
+        run: cargo install cross --locked
 
-      - name: Build binary (standard)
+      - name: Build (native)
         if: ${{ !matrix.use_cross }}
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --target ${{ matrix.target }}
+        run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Build binary (using cross)
+      - name: Build (cross)
         if: matrix.use_cross
-        run: |
-          cross build --release --target ${{ matrix.target }}
+        run: cross build --release --target ${{ matrix.target }}
 
       - name: Prepare binary
         shell: bash
         run: |
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} ${{ matrix.asset_name }}
-          else
-            cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} ${{ matrix.asset_name }}
-            chmod +x ${{ matrix.asset_name }}
+          cp "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" "${{ matrix.asset_name }}"
+          if [[ "${{ matrix.os }}" != "windows-latest" ]]; then
+            chmod +x "${{ matrix.asset_name }}"
           fi
 
-      - name: Get version
-        id: get_version
+      - name: Generate SHA256 checksum
         shell: bash
+        run: |
+          if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            shasum -a 256 "${{ matrix.asset_name }}" > "${{ matrix.asset_name }}.sha256"
+          else
+            sha256sum "${{ matrix.asset_name }}" > "${{ matrix.asset_name }}.sha256"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: |
+            ${{ matrix.asset_name }}
+            ${{ matrix.asset_name }}.sha256
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Get version
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get commits since last tag
+          PREV_TAG=$(git tag --sort=-version:refname | head -n 2 | tail -n 1)
+          if [ -z "$PREV_TAG" ]; then
+            CHANGES=$(git log --pretty=format:"- %s (%h)" HEAD)
+          else
+            CHANGES=$(git log --pretty=format:"- %s (%h)" ${PREV_TAG}..HEAD)
+          fi
+          # Write to file to handle multiline
+          echo "$CHANGES" > /tmp/changelog.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
           name: Unify ${{ env.VERSION }}
           draft: false
-          prerelease: false
-          files: |
-            ${{ matrix.asset_name }}
+          prerelease: ${{ contains(env.VERSION, '-rc') || contains(env.VERSION, '-beta') || contains(env.VERSION, '-alpha') }}
+          files: artifacts/*
           body: |
             # Unify ${{ env.VERSION }}
-            
+
+            ## Changes
+
+            ${{ steps.changelog.outputs.changes }}
+
             ## Installation
-            
-            ### Linux (x86_64)
+
+            ### Cargo (from source)
             ```
+            cargo install --git https://github.com/${{ github.repository }} --tag ${{ env.VERSION }}
+            ```
+
+            ### Linux (x86_64)
+            ```bash
             curl -L https://github.com/${{ github.repository }}/releases/download/${{ env.VERSION }}/unify-linux-amd64 -o unify
             chmod +x unify
             sudo mv unify /usr/local/bin/
             ```
-            
-            ### macOS (x86_64)
+
+            ### Linux (x86_64, static musl)
+            ```bash
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ env.VERSION }}/unify-linux-amd64-musl -o unify
+            chmod +x unify
+            sudo mv unify /usr/local/bin/
             ```
+
+            ### Linux (ARM64)
+            ```bash
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ env.VERSION }}/unify-linux-arm64 -o unify
+            chmod +x unify
+            sudo mv unify /usr/local/bin/
+            ```
+
+            ### macOS (Apple Silicon)
+            ```bash
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ env.VERSION }}/unify-macos-arm64 -o unify
+            chmod +x unify
+            sudo mv unify /usr/local/bin/
+            ```
+
+            ### macOS (Intel)
+            ```bash
             curl -L https://github.com/${{ github.repository }}/releases/download/${{ env.VERSION }}/unify-macos-amd64 -o unify
             chmod +x unify
             sudo mv unify /usr/local/bin/
             ```
-            
+
             ### Windows (x86_64)
-            Download the .exe file and add it to your PATH.
-            
+            Download `unify-windows-amd64.exe` and add to your PATH.
+
+            ### Windows (ARM64)
+            Download `unify-windows-arm64.exe` and add to your PATH.
+
+            ## Checksums
+            SHA256 checksums are provided alongside each binary (`.sha256` files).
+
+            Verify with:
+            ```bash
+            sha256sum -c unify-linux-amd64.sha256
+            ```

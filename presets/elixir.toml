@@ -1,0 +1,11 @@
+ignores = [
+    "/_build/",
+    "/cover/",
+    "/deps/",
+    "/*.ez",
+    "/erl_crash.dump",
+    "/.elixir_ls/",
+    "/.fetch",
+    "/priv/static/",
+    "mix.lock",
+]

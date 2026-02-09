@@ -1,0 +1,14 @@
+ignores = [
+    "/vendor/",
+    "composer.lock",
+    "composer.phar",
+    "/.phpunit.result.cache",
+    "/.php-cs-fixer.cache",
+    "/public/storage",
+    "/public/hot",
+    "/storage/*.key",
+    "/public/build",
+    "/build/logs/",
+    "/.env.local",
+    "/.env.*.local",
+]
